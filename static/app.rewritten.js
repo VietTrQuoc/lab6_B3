@@ -295,10 +295,6 @@ function appendBookingCard(booking) {
         <div class="value">${booking.time_slot}</div>
       </div>
       <div class="booking-detail-item">
-        <div class="label">Dịch vụ</div>
-        <div class="value">${booking.service_type || 'Chua xac dinh'}</div>
-      </div>
-      <div class="booking-detail-item">
         <div class="label">Xe</div>
         <div class="value">${booking.vin_number}</div>
       </div>
@@ -384,7 +380,6 @@ function upsertBookingsSummaryCard(bookings) {
     <tr>
       <td>${booking.booking_id}</td>
       <td>${booking.vin_number}</td>
-      <td>${booking.service_type || 'Chua xac dinh'}</td>
       <td>${booking.center_name}</td>
       <td>${booking.booking_date}</td>
       <td>${booking.time_slot}</td>
@@ -402,7 +397,6 @@ function upsertBookingsSummaryCard(bookings) {
           <tr>
             <th>Mã</th>
             <th>Xe</th>
-            <th>Dịch vụ</th>
             <th>Xưởng</th>
             <th>Ngày</th>
             <th>Giờ</th>

@@ -15,7 +15,7 @@ from pydantic import BaseModel
 from pathlib import Path
 
 from app import data
-from app import agent
+from app import agent_langgraph as agent
 
 
 # ─── Lifespan: init data & start TTL worker ──────────────────────
@@ -111,6 +111,12 @@ def confirm_booking(req: ConfirmRequest):
             detail="Không thể xác nhận lịch hẹn. Lịch hẹn đã hết hạn hoặc không tồn tại."
         )
     return booking
+
+
+@app.get("/api/bookings")
+def get_bookings(vehicle_id: str | None = None):
+    """Get bookings of the demo user, optionally filtered by vehicle_id."""
+    return data.get_user_bookings(user_id="U_VIN_001", vehicle_id=vehicle_id)
 
 
 @app.get("/api/booking/{booking_id}")

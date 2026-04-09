@@ -1,0 +1,1 @@
+booking_id,user_id,vehicle_id,vin_number,center_id,center_name,booking_date,time_slot,service_type,ai_diagnosis_log,note,status,created_at,pending_expires_at,ttl_seconds,confirmed_at,updated_at,rescheduled_at

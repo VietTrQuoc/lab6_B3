@@ -701,6 +701,37 @@ html, body {
   font-weight: 500;
 }
 
+.bookings-summary-card {
+  border-color: rgba(94, 234, 212, 0.28);
+  background: linear-gradient(135deg, rgba(94, 234, 212, 0.08), rgba(0, 177, 79, 0.05));
+}
+
+.bookings-table-wrapper {
+  overflow-x: auto;
+}
+
+.bookings-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.bookings-table th,
+.bookings-table td {
+  padding: 10px 8px;
+  text-align: left;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.bookings-table th {
+  color: var(--vf-green-light);
+  font-weight: 600;
+}
+
+.bookings-table td {
+  color: var(--text-primary);
+}
+
 /* Countdown Timer */
 .countdown-section {
   display: flex;

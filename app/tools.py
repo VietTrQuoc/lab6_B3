@@ -282,6 +282,20 @@ def get_available_time_slots(center_id: str, date_str: str = None) -> dict:
 
     slots = data.get_available_slots(center_id, date_str)
 
+    earliest_slot = None
+    latest_slot = None
+    if slots:
+        earliest_slot = {
+            "slot_id": slots[0]["slot_id"],
+            "date": slots[0]["date"],
+            "time": slots[0]["time"],
+        }
+        latest_slot = {
+            "slot_id": slots[-1]["slot_id"],
+            "date": slots[-1]["date"],
+            "time": slots[-1]["time"],
+        }
+
     # Group by date for readability, include slot_id so AI can book directly
     by_date = {}
     for s in slots:
@@ -297,6 +311,8 @@ def get_available_time_slots(center_id: str, date_str: str = None) -> dict:
         "center_id": center_id,
         "center_name": center["name"],
         "filter_date": date_str,
+        "earliest_available_slot": earliest_slot,
+        "latest_available_slot": latest_slot,
         "available_dates": by_date,
         "total_slots": len(slots),
     }
@@ -336,6 +352,40 @@ def create_appointment(vehicle_id: str, center_id: str, slot_id: str,
         "message": "Em đã giữ chỗ cho anh/chị. Lịch hẹn đang ở trạng thái chờ xác nhận.",
         "ttl_message": "Em sẽ giữ chỗ này cho anh/chị trong 5 phút. Vui lòng xác nhận để hoàn tất đặt lịch.",
         "booking": booking,
+    }
+
+
+def reschedule_appointment(
+    booking_id: str,
+    center_id: str,
+    slot_id: str,
+    service_type: str = "",
+    note: str = "",
+) -> dict:
+    """
+    Đổi lịch hẹn sang khung giờ hoặc xưởng khác và giữ đúng loại dịch vụ.
+    """
+    booking = data.get_booking(booking_id)
+    if not booking:
+        return {"error": f"Không tìm thấy lịch hẹn {booking_id}."}
+
+    updated_booking = data.reschedule_booking(
+        booking_id=booking_id,
+        center_id=center_id,
+        slot_id=slot_id,
+        service_type=service_type or booking.get("service_type"),
+        note=note if note else booking.get("note"),
+    )
+    if not updated_booking:
+        return {
+            "error": "Không thể đổi lịch vì khung giờ mới không khả dụng hoặc lịch hẹn không hợp lệ.",
+            "suggestion": "Sử dụng công cụ get_available_time_slots để lấy lại danh sách khung giờ còn trống trước khi đổi lịch.",
+        }
+
+    return {
+        "success": True,
+        "message": "Em đã cập nhật lịch hẹn theo thông tin mới.",
+        "booking": updated_booking,
     }
 
 

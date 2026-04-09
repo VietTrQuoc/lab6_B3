@@ -7,6 +7,10 @@ and the agent loop that handles multi-turn tool calls.
 
 import json
 import os
+import re
+import unicodedata
+from datetime import datetime
+from zoneinfo import ZoneInfo
 from openai import OpenAI
 from dotenv import load_dotenv
 from app import tools
@@ -228,6 +232,415 @@ TOOL_MAP = {
     "lookup_my_bookings": tools.lookup_my_bookings,
 }
 
+TOPIC_KEYWORDS = {
+    "bao hanh",
+    "warranty",
+    "chinh sach",
+    "quyen loi",
+    "pin",
+    "lfp",
+    "linh kien",
+    "bao duong",
+    "chan doan",
+    "diagnostic",
+    "telemetry",
+    "ma loi",
+    "loi",
+    "sua chua",
+    "xuong",
+    "dich vu",
+    "trung tam",
+    "dat lich",
+    "lich hen",
+    "booking",
+    "slot",
+}
+
+BOOKING_INTENT_KEYWORDS = {
+    "dat lich",
+    "lich hen",
+    "bao duong",
+    "kiem tra",
+    "sua chua",
+    "bao hanh",
+    "thay pin",
+    "xuong",
+    "trung tam",
+    "slot",
+}
+
+GENERIC_VEHICLE_REFERENCES = {
+    "xe",
+    "chiec xe",
+    "xe nay",
+    "xe kia",
+    "xe do",
+    "xe cua toi",
+    "xe cua em",
+    "con xe",
+    "mau xe",
+    "dong xe",
+}
+
+GREETING_KEYWORDS = {
+    "xin chao",
+    "chao",
+    "hello",
+    "hi",
+    "alo",
+    "cam on",
+    "thank",
+}
+
+OUT_OF_SCOPE_HINTS = {
+    "gia",
+    "gia ban",
+    "bao nhieu tien",
+    "tra gop",
+    "khuyen mai",
+    "uu dai",
+    "thiet ke",
+    "tinh nang",
+    "thong so",
+    "toc do",
+    "cong suat",
+    "so sanh",
+    "danh gia",
+    "review",
+    "thoi tiet",
+    "bong da",
+    "chung khoan",
+    "am nhac",
+    "phim",
+    "nau an",
+}
+
+DATETIME_HINTS = {
+    "hom nay",
+    "ngay mai",
+    "mai",
+    "sang",
+    "chieu",
+    "toi",
+    "tuan nay",
+    "tuan sau",
+    "cuoi tuan",
+    "thu 2",
+    "thu 3",
+    "thu 4",
+    "thu 5",
+    "thu 6",
+    "thu 7",
+    "chu nhat",
+}
+
+
+def _normalize_text(text: str) -> str:
+    """Lowercase, strip accents, and collapse punctuation for keyword matching."""
+    if not text:
+        return ""
+
+    normalized = unicodedata.normalize("NFD", text.lower())
+    normalized = "".join(ch for ch in normalized if unicodedata.category(ch) != "Mn")
+    normalized = re.sub(r"[^a-z0-9\s]", " ", normalized)
+    normalized = re.sub(r"\s+", " ", normalized)
+    return normalized.strip()
+
+
+def _contains_topic(text: str) -> bool:
+    normalized = _normalize_text(text)
+    return any(keyword in normalized for keyword in TOPIC_KEYWORDS)
+
+
+def _contains_booking_intent(text: str) -> bool:
+    normalized = _normalize_text(text)
+    return any(keyword in normalized for keyword in BOOKING_INTENT_KEYWORDS)
+
+
+def _is_greeting_or_social(text: str) -> bool:
+    normalized = _normalize_text(text)
+    return any(keyword in normalized for keyword in GREETING_KEYWORDS)
+
+
+def _contains_out_of_scope_hint(text: str) -> bool:
+    normalized = _normalize_text(text)
+    return any(keyword in normalized for keyword in OUT_OF_SCOPE_HINTS)
+
+
+def _contains_datetime_preference(text: str) -> bool:
+    normalized = _normalize_text(text)
+
+    if any(hint in normalized for hint in DATETIME_HINTS):
+        return True
+
+    if re.search(r"\b\d{1,2}[:hg]\d{0,2}\b", normalized):
+        return True
+
+    if re.search(r"\b\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?\b", normalized):
+        return True
+
+    return False
+
+
+def _contains_service_location(text: str, service_centers: list[dict]) -> bool:
+    normalized = _normalize_text(text)
+
+    generic_location_hints = {
+        "ha noi",
+        "hanoi",
+        "tp hcm",
+        "tphcm",
+        "ho chi minh",
+        "da nang",
+        "hai phong",
+        "can tho",
+        "dong nai",
+        "gan toi",
+        "gan nha",
+        "khu vuc",
+    }
+    if any(hint in normalized for hint in generic_location_hints):
+        return True
+
+    for center in service_centers:
+        values = {
+            center["id"],
+            center["name"],
+            center["city"],
+            center["district"],
+            center["address"],
+        }
+        if any(_normalize_text(value) in normalized for value in values):
+            return True
+
+    return False
+
+
+def _find_vehicle_reference(text: str, vehicles: list[dict], selected_vehicle_id: str = None) -> dict | None:
+    normalized = _normalize_text(text)
+
+    for vehicle in vehicles:
+        candidates = {
+            vehicle["id"],
+            vehicle["model"],
+            vehicle["vin"],
+        }
+        if any(_normalize_text(candidate) in normalized for candidate in candidates):
+            return vehicle
+
+    if selected_vehicle_id and any(ref in normalized for ref in GENERIC_VEHICLE_REFERENCES):
+        return next((vehicle for vehicle in vehicles if vehicle["id"] == selected_vehicle_id), None)
+
+    return None
+
+
+def _get_recent_topic_context(messages: list[dict], lookback: int = 4) -> bool:
+    text_messages = []
+    for message in reversed(messages[:-1]):
+        content = message.get("content")
+        if isinstance(content, str) and content.strip():
+            text_messages.append(content)
+        if len(text_messages) >= lookback:
+            break
+
+    return any(_contains_topic(content) for content in text_messages)
+
+
+def _get_recent_booking_context(messages: list[dict], lookback: int = 6) -> bool:
+    text_messages = []
+    for message in reversed(messages[:-1]):
+        content = message.get("content")
+        if isinstance(content, str) and content.strip():
+            text_messages.append(content)
+        if len(text_messages) >= lookback:
+            break
+
+    return any(_contains_booking_intent(content) for content in text_messages)
+
+
+def _history_contains_service_location(messages: list[dict], service_centers: list[dict], lookback: int = 6) -> bool:
+    text_messages = []
+    for message in reversed(messages[:-1]):
+        if message.get("role") != "user":
+            continue
+        content = message.get("content")
+        if isinstance(content, str) and content.strip():
+            text_messages.append(content)
+        if len(text_messages) >= lookback:
+            break
+
+    return any(_contains_service_location(content, service_centers) for content in text_messages)
+
+
+def _history_contains_datetime_preference(messages: list[dict], lookback: int = 6) -> bool:
+    text_messages = []
+    for message in reversed(messages[:-1]):
+        if message.get("role") != "user":
+            continue
+        content = message.get("content")
+        if isinstance(content, str) and content.strip():
+            text_messages.append(content)
+        if len(text_messages) >= lookback:
+            break
+
+    return any(_contains_datetime_preference(content) for content in text_messages)
+
+
+def _build_runtime_context() -> str:
+    current_dt = datetime.now(ZoneInfo("Asia/Ho_Chi_Minh"))
+    return (
+        "\n\n## Runtime context"
+        f"\nCurrent datetime: {current_dt.strftime('%Y-%m-%d %H:%M:%S %Z')}"
+        f"\nCurrent date: {current_dt.strftime('%Y-%m-%d')}"
+        "\nWhen the customer refers to today, tomorrow, warranty remaining days, or appointment dates,"
+        " use this runtime date as the source of truth."
+    )
+
+
+def _build_topic_clarification(vehicle: dict | None) -> str:
+    vehicle_label = vehicle["model"] if vehicle else "xe nay"
+    return (
+        f"Anh/chị đang muốn em hỗ trợ gì với {vehicle_label}? "
+        "Em có thể hỗ trợ tra cứu bảo hành, giải thích chính sách, chẩn đoán sơ bộ "
+        "hoặc hỗ trợ đặt lịch kiểm tra."
+    )
+
+
+def _should_clarify_topic(messages: list[dict], vehicles: list[dict], selected_vehicle_id: str = None) -> dict | None:
+    if not messages:
+        return None
+
+    latest_message = messages[-1]
+    if latest_message.get("role") != "user":
+        return None
+
+    latest_content = latest_message.get("content")
+    if not isinstance(latest_content, str) or not latest_content.strip():
+        return None
+
+    if _contains_topic(latest_content):
+        return None
+
+    if _get_recent_topic_context(messages):
+        return None
+
+    vehicle = _find_vehicle_reference(latest_content, vehicles, selected_vehicle_id)
+    if not vehicle:
+        return None
+
+    return {
+        "reply": _build_topic_clarification(vehicle),
+        "tool_calls_log": [],
+        "booking": None,
+    }
+
+
+def _build_booking_clarification(needs_location: bool, needs_datetime: bool) -> str:
+    if needs_location and needs_datetime:
+        return (
+            "Để đặt lịch bảo dưỡng/kiểm tra, anh/chị cho em biết giúp khu vực hoặc thành phố muốn làm dịch vụ "
+            "và thời gian mong muốn, ví dụ: Hà Nội sáng mai hoặc TP.HCM ngày 12/04 buổi chiều."
+        )
+
+    if needs_location:
+        return (
+            "Anh/chị muốn làm dịch vụ ở khu vực hoặc thành phố nào ạ? "
+            "Khi có vị trí, em mới tìm đúng xưởng và khung giờ khả dụng."
+        )
+
+    return (
+        "Anh/chị muốn đặt vào ngày hoặc khung giờ nào ạ? "
+        "Ví dụ: sáng mai, chiều thứ 6, hoặc 10/04 lúc 09:00."
+    )
+
+
+def _should_clarify_booking_details(
+    messages: list[dict],
+    vehicles: list[dict],
+    service_centers: list[dict],
+    selected_vehicle_id: str = None,
+) -> dict | None:
+    if not messages:
+        return None
+
+    latest_message = messages[-1]
+    if latest_message.get("role") != "user":
+        return None
+
+    latest_content = latest_message.get("content")
+    if not isinstance(latest_content, str) or not latest_content.strip():
+        return None
+
+    if not (_contains_booking_intent(latest_content) or _get_recent_booking_context(messages)):
+        return None
+
+    active_vehicle = selected_vehicle_id or (
+        _find_vehicle_reference(latest_content, vehicles, selected_vehicle_id) or {}
+    ).get("id")
+    if not active_vehicle:
+        return None
+
+    has_location = (
+        _contains_service_location(latest_content, service_centers)
+        or _history_contains_service_location(messages, service_centers)
+    )
+    has_datetime = (
+        _contains_datetime_preference(latest_content)
+        or _history_contains_datetime_preference(messages)
+    )
+
+    if has_location and has_datetime:
+        return None
+
+    return {
+        "reply": _build_booking_clarification(
+            needs_location=not has_location,
+            needs_datetime=not has_datetime,
+        ),
+        "tool_calls_log": [],
+        "booking": None,
+    }
+
+
+def _should_reject_out_of_scope(messages: list[dict], vehicles: list[dict], selected_vehicle_id: str = None) -> dict | None:
+    if not messages:
+        return None
+
+    latest_message = messages[-1]
+    if latest_message.get("role") != "user":
+        return None
+
+    latest_content = latest_message.get("content")
+    if not isinstance(latest_content, str) or not latest_content.strip():
+        return None
+
+    if _contains_topic(latest_content) or _get_recent_topic_context(messages):
+        return None
+
+    if _find_vehicle_reference(latest_content, vehicles, selected_vehicle_id):
+        if _contains_out_of_scope_hint(latest_content):
+            return {
+                "reply": (
+                    "Em chỉ hỗ trợ các vấn đề về bảo hành, chẩn đoán, lịch hẹn dịch vụ và dữ liệu xe VinFast "
+                    "đã có trong hệ thống. Nếu anh/chị cần, em có thể hỗ trợ tra cứu bảo hành hoặc đặt lịch kiểm tra."
+                ),
+                "tool_calls_log": [],
+                "booking": None,
+            }
+        return None
+
+    if _is_greeting_or_social(latest_content):
+        return None
+
+    return {
+        "reply": (
+            "Em chỉ hỗ trợ các nội dung liên quan đến bảo hành xe VinFast từ dữ liệu đã nạp trong hệ thống, "
+            "gồm tra cứu bảo hành, giải thích chính sách, chẩn đoán sơ bộ, tìm xưởng dịch vụ và đặt lịch."
+        ),
+        "tool_calls_log": [],
+        "booking": None,
+    }
+
 
 def _execute_tool(name: str, arguments: dict) -> str:
     """Execute a tool function and return JSON string result."""
@@ -257,9 +670,27 @@ def chat(messages: list[dict], selected_vehicle_id: str = None) -> dict:
 
     # Build system message with vehicle context including full vehicle list
     system_msg = SYSTEM_PROMPT
+    system_msg += _build_runtime_context()
 
     # Inject danh sách xe của user vào system prompt để AI biết vehicle_id hợp lệ
     all_vehicles = _data.get_all_vehicles()
+    all_service_centers = _data.get_all_service_centers()
+    rejection_response = _should_reject_out_of_scope(messages, all_vehicles, selected_vehicle_id)
+    if rejection_response:
+        return rejection_response
+
+    booking_clarification_response = _should_clarify_booking_details(
+        messages,
+        all_vehicles,
+        all_service_centers,
+        selected_vehicle_id,
+    )
+    if booking_clarification_response:
+        return booking_clarification_response
+
+    clarification_response = _should_clarify_topic(messages, all_vehicles, selected_vehicle_id)
+    if clarification_response:
+        return clarification_response
     if all_vehicles:
         vehicle_lines = []
         for v in all_vehicles:
@@ -268,6 +699,10 @@ def chat(messages: list[dict], selected_vehicle_id: str = None) -> dict:
             )
         system_msg += "\n\n## Danh sách xe của khách hàng\n" + "\n".join(vehicle_lines)
         system_msg += "\n\n**Lưu ý:** Khi khách hỏi về xe, hãy dùng đúng vehicle_id ở trên (V001, V002, ...). Nếu khách chưa chọn xe cụ thể và có nhiều xe, hãy hỏi khách muốn tra cứu xe nào."
+
+    system_msg += "\n\n## Clarification rule\nIf the customer's latest message only identifies a vehicle/model/VIN but does not state the support topic, ask what they want help with first and do not call tools yet."
+    system_msg += "\n\n## Scope rule\nOnly answer questions about warranty, diagnostics, service centers, appointments, and the vehicle data loaded into this system. Refuse unrelated requests such as price, promotions, entertainment, weather, or general knowledge."
+    system_msg += "\n\n## Booking rule\nWhen the customer wants maintenance or booking support, do not choose a service center, city, date, or time on their behalf. If location or preferred date/time is missing, ask for the missing details first and do not call slot or booking tools yet."
 
     if selected_vehicle_id:
         system_msg += f"\n\n## Xe đang được chọn trên giao diện\nVehicle ID: {selected_vehicle_id} — Khi khách hỏi mà không chỉ rõ xe, hãy dùng xe này."
@@ -352,3 +787,6 @@ def chat(messages: list[dict], selected_vehicle_id: str = None) -> dict:
             "tool_calls_log": tool_calls_log,
             "booking": None,
         }
+
+
+from app.agent_langgraph import *  # noqa: F401,F403,E402
