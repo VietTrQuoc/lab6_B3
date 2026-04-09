@@ -5,6 +5,7 @@ Each function corresponds to an OpenAI tool (function calling).
 They interact with the in-memory data layer and return structured dicts.
 """
 
+import json
 from datetime import datetime, date
 from app import data
 
@@ -408,3 +409,187 @@ def lookup_my_bookings(vehicle_id: str = None) -> dict:
         "total": len(bookings),
         "filter_vehicle_id": vehicle_id,
     }
+
+
+TOOL_DEFINITIONS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "lookup_warranty_status",
+            "description": "Tra cuu tinh trang bao hanh xe va pin theo vehicle_id.",
+            "strict": True,
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "vehicle_id": {"type": "string", "description": "Ma xe can tra cuu, vi du V001."}
+                },
+                "required": ["vehicle_id"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "explain_warranty_policy",
+            "description": "Giai thich chinh sach bao hanh theo danh muc pin, linh_kien, bao_duong hoac tong_quat.",
+            "strict": True,
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "category": {
+                        "type": "string",
+                        "enum": ["pin", "linh_kien", "bao_duong", "tong_quat"],
+                        "description": "Danh muc can giai thich.",
+                    }
+                },
+                "required": ["category"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "diagnose_telemetry",
+            "description": "Chan doan so bo xe tu telemetry theo vehicle_id.",
+            "strict": True,
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "vehicle_id": {"type": "string", "description": "Ma xe can chan doan."}
+                },
+                "required": ["vehicle_id"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "find_nearest_service_center",
+            "description": "Tim xuong dich vu VinFast theo thanh pho hoac khu vuc.",
+            "strict": True,
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "city": {"type": "string", "description": "Ten thanh pho hoac khu vuc lon, vi du Ha Noi."}
+                },
+                "required": ["city"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_available_time_slots",
+            "description": "Lay danh sach khung gio con trong cho mot xuong dich vu, co the loc theo ngay.",
+            "strict": True,
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "center_id": {"type": "string", "description": "Ma xuong dich vu, vi du SC001."},
+                    "date_str": {
+                        "type": ["string", "null"],
+                        "description": "Ngay can xem theo YYYY-MM-DD hoac null neu xem tat ca.",
+                    },
+                },
+                "required": ["center_id", "date_str"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "create_appointment",
+            "description": "Tao lich hen kiem tra hoac bao duong xe. Slot se o trang thai PENDING trong 5 phut.",
+            "strict": True,
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "vehicle_id": {"type": "string", "description": "Ma xe can dat lich."},
+                    "center_id": {"type": "string", "description": "Ma xuong dich vu."},
+                    "slot_id": {"type": "string", "description": "Ma khung gio cu the."},
+                    "service_type": {
+                        "type": "string",
+                        "description": "Loai dich vu: kiem tra, bao duong, sua chua, bao hanh, thay pin, khac.",
+                    },
+                    "ai_diagnosis_log": {
+                        "type": "string",
+                        "description": "Tom tat chan doan AI de ky thuat vien tham khao.",
+                    },
+                    "note": {"type": "string", "description": "Ghi chu them cua khach hang."},
+                },
+                "required": ["vehicle_id", "center_id", "slot_id", "service_type", "ai_diagnosis_log", "note"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "lookup_my_bookings",
+            "description": "Tra cuu danh sach lich hen da dat cua khach hang, co the loc theo vehicle_id.",
+            "strict": True,
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "vehicle_id": {
+                        "type": ["string", "null"],
+                        "description": "Ma xe can loc hoac null neu xem tat ca.",
+                    }
+                },
+                "required": ["vehicle_id"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "reschedule_appointment",
+            "description": "Doi lich hen da co sang xuong hoac khung gio moi va giu dung loai dich vu khach yeu cau.",
+            "strict": True,
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "booking_id": {"type": "string", "description": "Ma lich hen can doi, vi du BK_ABC123."},
+                    "center_id": {"type": "string", "description": "Ma xuong dich vu moi hoac giu nguyen xuong cu."},
+                    "slot_id": {"type": "string", "description": "Ma khung gio moi lay tu get_available_time_slots."},
+                    "service_type": {
+                        "type": "string",
+                        "description": "Loai dich vu chinh xac khach muon thuc hien sau khi doi lich.",
+                    },
+                    "note": {"type": "string", "description": "Ghi chu cap nhat cho lich hen."},
+                },
+                "required": ["booking_id", "center_id", "slot_id", "service_type", "note"],
+                "additionalProperties": False,
+            },
+        },
+    },
+]
+
+TOOL_MAP = {
+    "lookup_warranty_status": lookup_warranty_status,
+    "explain_warranty_policy": explain_warranty_policy,
+    "diagnose_telemetry": diagnose_telemetry,
+    "find_nearest_service_center": find_nearest_service_center,
+    "get_available_time_slots": get_available_time_slots,
+    "create_appointment": create_appointment,
+    "lookup_my_bookings": lookup_my_bookings,
+    "reschedule_appointment": reschedule_appointment,
+}
+
+
+def execute_tool(name: str, arguments: dict) -> str:
+    func = TOOL_MAP.get(name)
+    if not func:
+        return json.dumps({"error": f"Tool '{name}' khong ton tai."}, ensure_ascii=False)
+
+    try:
+        result = func(**arguments)
+        return json.dumps(result, ensure_ascii=False, default=str)
+    except Exception as exc:
+        return json.dumps({"error": f"Loi khi thuc thi tool '{name}': {str(exc)}"}, ensure_ascii=False)

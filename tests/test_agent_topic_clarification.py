@@ -9,7 +9,7 @@ from zoneinfo import ZoneInfo
 
 os.environ.setdefault("OPENAI_API_KEY", "test-key")
 
-from app import agent_langgraph as agent, data
+from app import agent, data
 
 
 class AgentTopicClarificationTests(unittest.TestCase):
@@ -351,6 +351,53 @@ class AgentTopicClarificationTests(unittest.TestCase):
         self.assertEqual(updated_booking["center_id"], "SC008")
         self.assertEqual(updated_booking["booking_date"], replacement_slot["date"])
         self.assertEqual(updated_booking["time_slot"], replacement_slot["time"])
+        self.assertEqual(updated_booking["status"], "CONFIRMED")
+        self.assertIsNone(result["booking"])
+        self.assertIn("reschedule_appointment", [item["tool"] for item in result["tool_calls_log"]])
+
+    def test_chat_slot_selection_reschedules_unique_existing_booking_without_creating_new_row(self):
+        original_slot = data.get_available_slots("SC003")[0]
+        booking = data.hold_slot(
+            slot_id=original_slot["slot_id"],
+            vehicle_id="V001",
+            service_type="bao duong dinh ky",
+        )
+        data.confirm_booking(booking["booking_id"])
+        replacement_slot = next(
+            slot for slot in data.get_available_slots("SC008")
+            if slot["time"] == "14:00"
+        )
+        year, month, day = replacement_slot["date"].split("-")
+        display_date = f"{day}/{month}/{year}"
+
+        with patch.object(
+            agent,
+            "_get_agent_graph",
+            side_effect=AssertionError("Graph should not be called when selecting a concrete reschedule slot."),
+        ):
+            result = agent.chat(
+                messages=[
+                    {"role": "user", "content": "Doi lich hen cua xe nay sang Hai Phong"},
+                    {
+                        "role": "assistant",
+                        "content": (
+                            f"Cac khung gio con trong tai xuong VinFast Hai Phong ngay {display_date} la:\n"
+                            "- 13:30\n- 14:00\n- 14:30\n\n"
+                            "Anh/chị chọn khung giờ nào?"
+                        ),
+                    },
+                    {"role": "user", "content": "14h"},
+                ],
+                selected_vehicle_id="V001",
+            )
+
+        all_bookings = data.get_user_bookings(vehicle_id="V001")
+        updated_booking = data.get_booking(booking["booking_id"])
+        self.assertEqual(len(all_bookings), 1)
+        self.assertEqual(updated_booking["booking_id"], booking["booking_id"])
+        self.assertEqual(updated_booking["center_id"], "SC008")
+        self.assertEqual(updated_booking["booking_date"], replacement_slot["date"])
+        self.assertEqual(updated_booking["time_slot"], "14:00")
         self.assertEqual(updated_booking["status"], "CONFIRMED")
         self.assertIsNone(result["booking"])
         self.assertIn("reschedule_appointment", [item["tool"] for item in result["tool_calls_log"]])

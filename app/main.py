@@ -14,8 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from pathlib import Path
 
-from app import data
-from app import agent_langgraph as agent
+from app import agent, data
 
 
 # ─── Lifespan: init data & start TTL worker ──────────────────────
