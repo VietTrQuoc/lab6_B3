@@ -256,13 +256,19 @@ BOOKING_INTENT_KEYWORDS = {
     "dat lich",
     "lich hen",
     "bao duong",
-    "kiem tra",
     "sua chua",
-    "bao hanh",
     "thay pin",
     "xuong",
     "trung tam",
     "slot",
+    "doi lich",
+    "doi gio",
+    "doi ngay",
+    "doi xuong",
+    "dat lai",
+}
+
+RESCHEDULE_INTENT_KEYWORDS = {
     "doi lich",
     "doi gio",
     "doi ngay",
@@ -391,6 +397,11 @@ def _contains_booking_intent(text: str) -> bool:
     return any(keyword in normalized for keyword in BOOKING_INTENT_KEYWORDS)
 
 
+def _contains_reschedule_intent(text: str) -> bool:
+    normalized = _normalize_text(text)
+    return any(keyword in normalized for keyword in RESCHEDULE_INTENT_KEYWORDS)
+
+
 def _is_greeting_or_social(text: str) -> bool:
     normalized = _normalize_text(text)
     return any(keyword in normalized for keyword in GREETING_KEYWORDS)
@@ -495,12 +506,25 @@ def _get_recent_topic_context(messages: list[dict], lookback: int = 4) -> bool:
 def _get_recent_booking_context(messages: list[dict], lookback: int = 6) -> bool:
     text_messages = []
     for message in reversed(messages[:-1]):
+        if message.get("role") != "user":
+            continue
         content = message.get("content")
         if isinstance(content, str) and content.strip():
             text_messages.append(content)
         if len(text_messages) >= lookback:
             break
     return any(_contains_booking_intent(content) for content in text_messages)
+
+
+def _get_recent_reschedule_context(messages: list[dict], lookback: int = 6) -> bool:
+    text_messages = []
+    for message in reversed(messages[:-1]):
+        content = message.get("content")
+        if isinstance(content, str) and content.strip():
+            text_messages.append(content)
+        if len(text_messages) >= lookback:
+            break
+    return any(_contains_reschedule_intent(content) for content in text_messages)
 
 
 def _history_contains_service_location(messages: list[dict], service_centers: list[dict], lookback: int = 6) -> bool:
@@ -630,11 +654,40 @@ def _extract_date_from_text(text: str) -> str | None:
 
 def _extract_time_from_text(text: str) -> str | None:
     time_match = re.search(r"\b(\d{1,2}:\d{2})\b", text)
-    if not time_match:
+    if time_match:
+        hour, minute = time_match.group(1).split(":")
+        return f"{int(hour):02d}:{minute}"
+
+    shorthand_match = re.search(r"\b(\d{1,2})\s*[hg](\d{2})?\b", _normalize_text(text))
+    if not shorthand_match:
         return None
 
-    hour, minute = time_match.group(1).split(":")
-    return f"{int(hour):02d}:{minute}"
+    hour = int(shorthand_match.group(1))
+    minute = shorthand_match.group(2) or "00"
+    return f"{hour:02d}:{minute}"
+
+
+def _extract_booking_id_from_text(text: str) -> str | None:
+    booking_match = re.search(r"\b(BK_[A-Z0-9]+)\b", text, re.IGNORECASE)
+    if not booking_match:
+        return None
+    return booking_match.group(1).upper()
+
+
+def _extract_recent_booking_id(messages: list[dict], lookback: int = 6) -> str | None:
+    text_messages = []
+    for message in reversed(messages[:-1]):
+        content = message.get("content")
+        if isinstance(content, str) and content.strip():
+            text_messages.append(content)
+        if len(text_messages) >= lookback:
+            break
+
+    for content in text_messages:
+        booking_id = _extract_booking_id_from_text(content)
+        if booking_id:
+            return booking_id
+    return None
 
 
 def _resolve_center_from_text(text: str, service_centers: list[dict]) -> dict | None:
@@ -686,6 +739,8 @@ def _extract_recent_booking_proposal(
     vehicles: list[dict],
     selected_vehicle_id: str | None,
 ) -> dict | None:
+    from app import data as _data
+
     assistant_message = None
     for message in reversed(messages[:-1]):
         if message.get("role") == "assistant" and isinstance(message.get("content"), str):
@@ -696,26 +751,265 @@ def _extract_recent_booking_proposal(
         return None
 
     normalized_assistant = _normalize_text(assistant_message)
-    if "dat lich" not in normalized_assistant and "lich hen" not in normalized_assistant:
+    if (
+        "dat lich" not in normalized_assistant
+        and "lich hen" not in normalized_assistant
+        and not _contains_reschedule_intent(assistant_message)
+    ):
         return None
 
     center = _resolve_center_from_text(assistant_message, service_centers)
     booking_date = _extract_date_from_text(assistant_message)
     time_slot = _extract_time_from_text(assistant_message)
+    booking_id = _extract_booking_id_from_text(assistant_message) or _extract_recent_booking_id(messages)
+    existing_booking = _data.get_booking(booking_id) if booking_id else None
     vehicle = _find_vehicle_reference(assistant_message, vehicles, selected_vehicle_id)
     if not vehicle and selected_vehicle_id:
         vehicle = next((item for item in vehicles if item["id"] == selected_vehicle_id), None)
+    if not vehicle and existing_booking:
+        vehicle = next(
+            (item for item in vehicles if item["id"] == existing_booking.get("vehicle_id")),
+            None,
+        )
 
-    if not center or not booking_date or not time_slot or not vehicle:
+    if not center or not booking_date or not time_slot:
         return None
 
-    return {
-        "vehicle_id": vehicle["id"],
+    is_reschedule = bool(existing_booking) and (
+        _contains_reschedule_intent(assistant_message) or _get_recent_reschedule_context(messages)
+    )
+    if not is_reschedule and not vehicle:
+        return None
+
+    proposal = {
+        "vehicle_id": (vehicle or {}).get("id") or (existing_booking or {}).get("vehicle_id"),
         "center_id": center["id"],
         "center_name": center["name"],
         "booking_date": booking_date,
         "time_slot": time_slot,
         "service_type": _infer_service_type(messages),
+    }
+    if is_reschedule:
+        proposal["booking_id"] = existing_booking["booking_id"]
+        proposal["action"] = "reschedule"
+    else:
+        proposal["action"] = "create"
+
+    return proposal
+
+
+def _extract_recent_slot_selection_context(
+    messages: list[dict],
+    service_centers: list[dict],
+    vehicles: list[dict],
+    selected_vehicle_id: str | None,
+) -> dict | None:
+    from app import data as _data
+
+    recent_messages: list[dict] = []
+    assistant_message = None
+    for message in reversed(messages[:-1]):
+        content = message.get("content")
+        if not isinstance(content, str) or not content.strip():
+            continue
+        recent_messages.append(message)
+        if message.get("role") == "assistant" and assistant_message is None:
+            normalized = _normalize_text(content)
+            if "khung gio" in normalized or "slot" in normalized:
+                assistant_message = content
+        if len(recent_messages) >= 8 and assistant_message:
+            break
+
+    if not assistant_message:
+        return None
+
+    normalized_assistant = _normalize_text(assistant_message)
+    if (
+        "chon khung gio" not in normalized_assistant
+        and "khung gio nao" not in normalized_assistant
+        and "khung gio con trong" not in normalized_assistant
+        and "khung gio kha dung" not in normalized_assistant
+    ):
+        return None
+
+    search_texts = [assistant_message] + [msg["content"] for msg in recent_messages if msg["content"] != assistant_message]
+    booking_date = None
+    center = None
+    vehicle = None
+
+    for content in search_texts:
+        if not booking_date:
+            booking_date = _extract_date_from_text(content)
+        if not center:
+            center = _resolve_center_from_text(content, service_centers)
+        if not vehicle:
+            vehicle = _find_vehicle_reference(content, vehicles, selected_vehicle_id)
+        if booking_date and center and vehicle:
+            break
+
+    booking_id = _extract_recent_booking_id(messages)
+    existing_booking = _data.get_booking(booking_id) if booking_id else None
+    if not vehicle and selected_vehicle_id:
+        vehicle = next((item for item in vehicles if item["id"] == selected_vehicle_id), None)
+    if not vehicle and existing_booking:
+        vehicle = next(
+            (item for item in vehicles if item["id"] == existing_booking.get("vehicle_id")),
+            None,
+        )
+
+    if not booking_date or not center:
+        return None
+
+    is_reschedule = bool(existing_booking) and (
+        _contains_reschedule_intent(assistant_message) or _get_recent_reschedule_context(messages)
+    )
+    if not is_reschedule and not vehicle:
+        return None
+
+    context = {
+        "vehicle_id": (vehicle or {}).get("id") or (existing_booking or {}).get("vehicle_id"),
+        "center_id": center["id"],
+        "center_name": center["name"],
+        "booking_date": booking_date,
+        "service_type": _infer_service_type(messages),
+    }
+    if is_reschedule:
+        context["booking_id"] = existing_booking["booking_id"]
+        context["action"] = "reschedule"
+    else:
+        context["action"] = "create"
+
+    return context
+
+
+def _handle_slot_selection_choice(
+    messages: list[dict],
+    service_centers: list[dict],
+    vehicles: list[dict],
+    selected_vehicle_id: str | None,
+) -> dict | None:
+    if len(messages) < 2:
+        return None
+
+    latest_message = messages[-1]
+    if latest_message.get("role") != "user":
+        return None
+
+    latest_content = latest_message.get("content")
+    if not isinstance(latest_content, str) or not latest_content.strip():
+        return None
+
+    selected_time = _extract_time_from_text(latest_content)
+    if not selected_time:
+        return None
+
+    context = _extract_recent_slot_selection_context(
+        messages,
+        service_centers,
+        vehicles,
+        selected_vehicle_id,
+    )
+    if not context:
+        return None
+
+    slots_result = tools.get_available_time_slots(context["center_id"], context["booking_date"])
+    available_slots = slots_result.get("available_dates", {}).get(context["booking_date"], [])
+    matched_slot = next((slot for slot in available_slots if slot.get("time") == selected_time), None)
+    tool_calls_log = [
+        {
+            "tool": "get_available_time_slots",
+            "arguments": {
+                "center_id": context["center_id"],
+                "date_str": context["booking_date"],
+            },
+        }
+    ]
+
+    if not matched_slot:
+        remaining_times = [slot.get("time") for slot in available_slots if slot.get("time")]
+        remaining_lines = "\n".join(f"- {slot_time}" for slot_time in remaining_times[:12])
+        reply = (
+            f"Khung giờ {selected_time} vào ngày {context['booking_date']} tại {context['center_name']} hiện không còn khả dụng."
+        )
+        if remaining_lines:
+            reply += (
+                f"\n\nAnh/chị có muốn chọn khung giờ khác trong ngày {context['booking_date']} không? "
+                f"Dưới đây là các khung giờ còn trống:\n{remaining_lines}"
+            )
+        return {
+            "reply": reply,
+            "tool_calls_log": tool_calls_log,
+            "booking": None,
+        }
+
+    if context.get("action") == "reschedule":
+        booking_result = tools.reschedule_appointment(
+            booking_id=context["booking_id"],
+            center_id=context["center_id"],
+            slot_id=matched_slot["slot_id"],
+            service_type=context["service_type"],
+            note="",
+        )
+        tool_calls_log.append(
+            {
+                "tool": "reschedule_appointment",
+                "arguments": {
+                    "booking_id": context["booking_id"],
+                    "center_id": context["center_id"],
+                    "slot_id": matched_slot["slot_id"],
+                    "service_type": context["service_type"],
+                    "note": "",
+                },
+            }
+        )
+    else:
+        booking_result = tools.create_appointment(
+            vehicle_id=context["vehicle_id"],
+            center_id=context["center_id"],
+            slot_id=matched_slot["slot_id"],
+            service_type=context["service_type"],
+            ai_diagnosis_log="",
+            note="",
+        )
+        tool_calls_log.append(
+            {
+                "tool": "create_appointment",
+                "arguments": {
+                    "vehicle_id": context["vehicle_id"],
+                    "center_id": context["center_id"],
+                    "slot_id": matched_slot["slot_id"],
+                    "service_type": context["service_type"],
+                    "ai_diagnosis_log": "",
+                    "note": "",
+                },
+            }
+        )
+
+    if not booking_result.get("success"):
+        return {
+            "reply": booking_result.get("error", "Khong the xu ly khung gio anh/chị vua chon."),
+            "tool_calls_log": tool_calls_log,
+            "booking": None,
+        }
+
+    booking = booking_result["booking"]
+    if context.get("action") == "reschedule":
+        return {
+            "reply": (
+                f"Em da cap nhat lich hen {context['service_type']} cua anh/chị sang {booking['center_name']} "
+                f"vao luc {booking['time_slot']} ngay {booking['booking_date']}."
+            ),
+            "tool_calls_log": tool_calls_log,
+            "booking": booking if booking.get("status") == "PENDING" else None,
+        }
+
+    return {
+        "reply": (
+            f"Em da giu cho lich hen {context['service_type']} cho anh/chị tai {booking['center_name']} "
+            f"vao luc {booking['time_slot']} ngay {booking['booking_date']}. Vui long bam xac nhan trong 5 phut de hoan tat."
+        ),
+        "tool_calls_log": tool_calls_log,
+        "booking": booking,
     }
 
 
@@ -765,27 +1059,48 @@ def _handle_booking_confirmation(
         }
 
     note = _extract_note_from_confirmation(latest_content)
-    booking_result = tools.create_appointment(
-        vehicle_id=proposal["vehicle_id"],
-        center_id=proposal["center_id"],
-        slot_id=matched_slot["slot_id"],
-        service_type=proposal["service_type"],
-        ai_diagnosis_log="",
-        note=note,
-    )
-    tool_calls_log.append(
-        {
-            "tool": "create_appointment",
-            "arguments": {
-                "vehicle_id": proposal["vehicle_id"],
-                "center_id": proposal["center_id"],
-                "slot_id": matched_slot["slot_id"],
-                "service_type": proposal["service_type"],
-                "ai_diagnosis_log": "",
-                "note": note,
-            },
-        }
-    )
+    if proposal.get("action") == "reschedule":
+        booking_result = tools.reschedule_appointment(
+            booking_id=proposal["booking_id"],
+            center_id=proposal["center_id"],
+            slot_id=matched_slot["slot_id"],
+            service_type=proposal["service_type"],
+            note=note,
+        )
+        tool_calls_log.append(
+            {
+                "tool": "reschedule_appointment",
+                "arguments": {
+                    "booking_id": proposal["booking_id"],
+                    "center_id": proposal["center_id"],
+                    "slot_id": matched_slot["slot_id"],
+                    "service_type": proposal["service_type"],
+                    "note": note,
+                },
+            }
+        )
+    else:
+        booking_result = tools.create_appointment(
+            vehicle_id=proposal["vehicle_id"],
+            center_id=proposal["center_id"],
+            slot_id=matched_slot["slot_id"],
+            service_type=proposal["service_type"],
+            ai_diagnosis_log="",
+            note=note,
+        )
+        tool_calls_log.append(
+            {
+                "tool": "create_appointment",
+                "arguments": {
+                    "vehicle_id": proposal["vehicle_id"],
+                    "center_id": proposal["center_id"],
+                    "slot_id": matched_slot["slot_id"],
+                    "service_type": proposal["service_type"],
+                    "ai_diagnosis_log": "",
+                    "note": note,
+                },
+            }
+        )
 
     if not booking_result.get("success"):
         return {
@@ -795,6 +1110,15 @@ def _handle_booking_confirmation(
         }
 
     booking = booking_result["booking"]
+    if proposal.get("action") == "reschedule":
+        return {
+            "reply": (
+                f"Em da cap nhat lich hen {proposal['service_type']} cua anh/chị sang {booking['center_name']} "
+                f"vao luc {booking['time_slot']} ngay {booking['booking_date']}."
+            ),
+            "tool_calls_log": tool_calls_log,
+            "booking": booking if booking.get("status") == "PENDING" else None,
+        }
     return {
         "reply": (
             f"Em đã giữ chỗ lịch hẹn {proposal['service_type']} cho anh/chị tại {booking['center_name']} "
@@ -1119,9 +1443,9 @@ def _tool_node(state: AgentState) -> AgentState:
 
         result_str = _execute_tool(tool_name, tool_args)
 
-        if tool_name == "create_appointment":
+        if tool_name in {"create_appointment", "reschedule_appointment"}:
             result_obj = json.loads(result_str)
-            if result_obj.get("success"):
+            if result_obj.get("success") and result_obj.get("booking", {}).get("status") == "PENDING":
                 booking_info = result_obj.get("booking")
 
         tool_messages.append(
@@ -1182,6 +1506,15 @@ def chat(messages: list[dict], selected_vehicle_id: str | None = None) -> dict:
     )
     if booking_confirmation_response:
         return booking_confirmation_response
+
+    slot_selection_response = _handle_slot_selection_choice(
+        messages,
+        all_service_centers,
+        all_vehicles,
+        selected_vehicle_id,
+    )
+    if slot_selection_response:
+        return slot_selection_response
 
     booking_clarification_response = _should_clarify_booking_details(
         messages,

@@ -137,6 +137,20 @@ class AgentTopicClarificationTests(unittest.TestCase):
 
         self.assertIsNone(result)
 
+    def test_warranty_lookup_vehicle_reply_is_not_misclassified_as_booking(self):
+        result = agent._should_clarify_booking_details(
+            messages=[
+                {"role": "user", "content": "Toi muon kiem tra tinh trang bao hanh"},
+                {"role": "assistant", "content": "Anh/chi muon tra cuu xe nao?"},
+                {"role": "user", "content": "Klara S2"},
+            ],
+            vehicles=data.get_all_vehicles(),
+            service_centers=data.get_all_service_centers(),
+            selected_vehicle_id=None,
+        )
+
+        self.assertIsNone(result)
+
     def test_booking_flow_requires_time_when_specific_center_selected(self):
         result = agent._should_clarify_booking_details(
             messages=[
@@ -261,6 +275,85 @@ class AgentTopicClarificationTests(unittest.TestCase):
         self.assertEqual(result["booking"]["time_slot"], slot["time"])
         self.assertEqual(result["booking"]["status"], "PENDING")
         self.assertIn("create_appointment", [item["tool"] for item in result["tool_calls_log"]])
+
+    def test_chat_slot_selection_books_chosen_time_from_recent_list(self):
+        target_slot = next(
+            slot for slot in data.get_available_slots("SC002")
+            if slot["time"] == "14:00"
+        )
+        year, month, day = target_slot["date"].split("-")
+        display_date = f"{day}/{month}/{year}"
+
+        with patch.object(
+            agent,
+            "_get_agent_graph",
+            side_effect=AssertionError("Graph should not be called when selecting a concrete slot from the latest list."),
+        ):
+            result = agent.chat(
+                messages=[
+                    {"role": "user", "content": "Dat lich bao duong cho xe nay o VinFast Cau Giay"},
+                    {
+                        "role": "assistant",
+                        "content": (
+                            f"Cac khung gio con trong tai xưởng VinFast Cầu Giấy ngay {display_date} la:\n"
+                            "- 13:30\n- 14:00\n- 14:30\n\n"
+                            "Anh/chị chọn khung giờ nào?"
+                        ),
+                    },
+                    {"role": "user", "content": "vay 14h"},
+                ],
+                selected_vehicle_id="V001",
+            )
+
+        self.assertIsNotNone(result["booking"])
+        self.assertEqual(result["booking"]["center_id"], "SC002")
+        self.assertEqual(result["booking"]["booking_date"], target_slot["date"])
+        self.assertEqual(result["booking"]["time_slot"], "14:00")
+        self.assertEqual(result["booking"]["status"], "PENDING")
+        self.assertIn("create_appointment", [item["tool"] for item in result["tool_calls_log"]])
+
+    def test_chat_confirmation_reschedules_latest_proposed_slot(self):
+        original_slot = data.get_available_slots("SC003")[0]
+        booking = data.hold_slot(
+            slot_id=original_slot["slot_id"],
+            vehicle_id="V001",
+            service_type="bao duong dinh ky",
+        )
+        confirmed_booking = data.confirm_booking(booking["booking_id"])
+        replacement_slot = data.get_available_slots("SC008")[0]
+        year, month, day = replacement_slot["date"].split("-")
+        display_date = f"{day}/{month}/{year}"
+
+        with patch.object(
+            agent,
+            "_get_agent_graph",
+            side_effect=AssertionError("Graph should not be called when confirming an explicit reschedule proposal."),
+        ):
+            result = agent.chat(
+                messages=[
+                    {"role": "user", "content": f"Doi lich hen {booking['booking_id']} sang Hai Phong"},
+                    {
+                        "role": "assistant",
+                        "content": (
+                            f"Em co the doi lich hen {booking['booking_id']} sang xuong VinFast Hai Phong "
+                            f"vao luc {replacement_slot['time']} ngay {display_date}. "
+                            "Anh co muon em tien hanh doi lich khong?"
+                        ),
+                    },
+                    {"role": "user", "content": "ok tien hanh doi lich cho toi"},
+                ],
+                selected_vehicle_id="V001",
+            )
+
+        updated_booking = data.get_booking(booking["booking_id"])
+        self.assertIsNotNone(confirmed_booking)
+        self.assertIsNotNone(updated_booking)
+        self.assertEqual(updated_booking["center_id"], "SC008")
+        self.assertEqual(updated_booking["booking_date"], replacement_slot["date"])
+        self.assertEqual(updated_booking["time_slot"], replacement_slot["time"])
+        self.assertEqual(updated_booking["status"], "CONFIRMED")
+        self.assertIsNone(result["booking"])
+        self.assertIn("reschedule_appointment", [item["tool"] for item in result["tool_calls_log"]])
 
 
 if __name__ == "__main__":
