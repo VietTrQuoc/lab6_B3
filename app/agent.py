@@ -11,10 +11,10 @@ from openai import OpenAI
 from dotenv import load_dotenv
 from app import tools
 
-load_dotenv()
+load_dotenv(override=True)
 
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-MODEL = os.getenv("OPENAI_MODEL", "gpt-4o")
+MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 
 # ─── System Prompt ────────────────────────────────────────────────
 SYSTEM_PROMPT = """Bạn là **VinBot**, chuyên viên tư vấn bảo hành xe máy điện VinFast. Bạn hỗ trợ khách hàng qua kênh chat trực tuyến.
@@ -31,6 +31,7 @@ SYSTEM_PROMPT = """Bạn là **VinBot**, chuyên viên tư vấn bảo hành xe 
 3. **Chẩn đoán telemetry**: Phân tích ODO, SOH pin, chu kỳ sạc, nhiệt độ, áp suất lốp, mã lỗi.
 4. **Tìm xưởng dịch vụ**: Gợi ý xưởng gần nhất theo thành phố.
 5. **Đặt lịch hẹn**: Tạo lịch kiểm tra/bảo dưỡng (giữ slot 5 phút, cần xác nhận).
+6. **Tra cứu lịch hẹn**: Xem lại các lịch hẹn đã đặt và trạng thái hiện tại.
 
 ## Quy trình đặt lịch
 - Khi đặt lịch, trước tiên gọi `get_available_time_slots` để lấy slot trống.
@@ -194,6 +195,25 @@ TOOL_DEFINITIONS = [
             }
         }
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "lookup_my_bookings",
+            "description": "Tra cứu danh sách lịch hẹn đã đặt của khách hàng. Có thể lọc theo xe cụ thể. Dùng khi khách hỏi xem lại lịch đã đặt, trạng thái booking, v.v.",
+            "strict": True,
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "vehicle_id": {
+                        "type": ["string", "null"],
+                        "description": "Mã xe cần lọc (V001, V002...). Null = xem tất cả lịch hẹn."
+                    }
+                },
+                "required": ["vehicle_id"],
+                "additionalProperties": False
+            }
+        }
+    },
 ]
 
 
@@ -205,6 +225,7 @@ TOOL_MAP = {
     "find_nearest_service_center": tools.find_nearest_service_center,
     "get_available_time_slots": tools.get_available_time_slots,
     "create_appointment": tools.create_appointment,
+    "lookup_my_bookings": tools.lookup_my_bookings,
 }
 
 
@@ -232,10 +253,24 @@ def chat(messages: list[dict], selected_vehicle_id: str = None) -> dict:
     Returns:
         dict with 'reply' (str), 'tool_calls_log' (list), and optionally 'booking' info
     """
-    # Build system message with vehicle context
+    from app import data as _data
+
+    # Build system message with vehicle context including full vehicle list
     system_msg = SYSTEM_PROMPT
+
+    # Inject danh sách xe của user vào system prompt để AI biết vehicle_id hợp lệ
+    all_vehicles = _data.get_all_vehicles()
+    if all_vehicles:
+        vehicle_lines = []
+        for v in all_vehicles:
+            vehicle_lines.append(
+                f"  - **{v['id']}**: {v['model']} | VIN: {v['vin']} | Màu: {v['color']} | Mua: {v['purchase_date']} | ODO: {v['telemetry']['odo_km']:,} km | SOH pin: {v['telemetry']['battery_soh_percent']}%"
+            )
+        system_msg += "\n\n## Danh sách xe của khách hàng\n" + "\n".join(vehicle_lines)
+        system_msg += "\n\n**Lưu ý:** Khi khách hỏi về xe, hãy dùng đúng vehicle_id ở trên (V001, V002, ...). Nếu khách chưa chọn xe cụ thể và có nhiều xe, hãy hỏi khách muốn tra cứu xe nào."
+
     if selected_vehicle_id:
-        system_msg += f"\n\n## Xe đang được chọn trên giao diện\nVehicle ID: {selected_vehicle_id}"
+        system_msg += f"\n\n## Xe đang được chọn trên giao diện\nVehicle ID: {selected_vehicle_id} — Khi khách hỏi mà không chỉ rõ xe, hãy dùng xe này."
 
     full_messages = [{"role": "system", "content": system_msg}] + messages
 
@@ -243,65 +278,77 @@ def chat(messages: list[dict], selected_vehicle_id: str = None) -> dict:
     booking_info = None
     max_iterations = 5
 
-    for iteration in range(max_iterations):
+    try:
+        for iteration in range(max_iterations):
+            response = client.chat.completions.create(
+                model=MODEL,
+                messages=full_messages,
+                tools=TOOL_DEFINITIONS,
+                tool_choice="auto",
+            )
+
+            choice = response.choices[0]
+
+            # If the model wants to call tools
+            if choice.finish_reason == "tool_calls" or choice.message.tool_calls:
+                # Add assistant message with tool calls to history
+                full_messages.append(choice.message)
+
+                for tool_call in choice.message.tool_calls:
+                    fn_name = tool_call.function.name
+                    fn_args = json.loads(tool_call.function.arguments)
+
+                    tool_calls_log.append({
+                        "tool": fn_name,
+                        "arguments": fn_args,
+                        "iteration": iteration + 1,
+                    })
+
+                    result_str = _execute_tool(fn_name, fn_args)
+
+                    # Track booking info for frontend
+                    if fn_name == "create_appointment":
+                        result_obj = json.loads(result_str)
+                        if result_obj.get("success"):
+                            booking_info = result_obj.get("booking")
+
+                    # Add tool result to message history
+                    full_messages.append({
+                        "role": "tool",
+                        "tool_call_id": tool_call.id,
+                        "content": result_str,
+                    })
+            else:
+                # Model finished with a text response
+                reply = choice.message.content or ""
+                return {
+                    "reply": reply,
+                    "tool_calls_log": tool_calls_log,
+                    "booking": booking_info,
+                }
+
+        # If we hit max iterations, get a final text response
+        full_messages.append({
+            "role": "user",
+            "content": "(Hệ thống: Bạn đã sử dụng quá nhiều tool calls. Hãy tổng hợp thông tin đã thu thập và trả lời khách hàng ngay.)"
+        })
         response = client.chat.completions.create(
             model=MODEL,
             messages=full_messages,
-            tools=TOOL_DEFINITIONS,
-            tool_choice="auto",
         )
+        return {
+            "reply": response.choices[0].message.content or "Xin lỗi, em không thể xử lý yêu cầu này. Anh/chị vui lòng liên hệ hotline 1900 23 23 89.",
+            "tool_calls_log": tool_calls_log,
+            "booking": booking_info,
+        }
 
-        choice = response.choices[0]
-
-        # If the model wants to call tools
-        if choice.finish_reason == "tool_calls" or choice.message.tool_calls:
-            # Add assistant message with tool calls to history
-            full_messages.append(choice.message)
-
-            for tool_call in choice.message.tool_calls:
-                fn_name = tool_call.function.name
-                fn_args = json.loads(tool_call.function.arguments)
-
-                tool_calls_log.append({
-                    "tool": fn_name,
-                    "arguments": fn_args,
-                    "iteration": iteration + 1,
-                })
-
-                result_str = _execute_tool(fn_name, fn_args)
-
-                # Track booking info for frontend
-                if fn_name == "create_appointment":
-                    result_obj = json.loads(result_str)
-                    if result_obj.get("success"):
-                        booking_info = result_obj.get("booking")
-
-                # Add tool result to message history
-                full_messages.append({
-                    "role": "tool",
-                    "tool_call_id": tool_call.id,
-                    "content": result_str,
-                })
-        else:
-            # Model finished with a text response
-            reply = choice.message.content or ""
-            return {
-                "reply": reply,
-                "tool_calls_log": tool_calls_log,
-                "booking": booking_info,
-            }
-
-    # If we hit max iterations, get a final text response
-    full_messages.append({
-        "role": "user",
-        "content": "(Hệ thống: Bạn đã sử dụng quá nhiều tool calls. Hãy tổng hợp thông tin đã thu thập và trả lời khách hàng ngay.)"
-    })
-    response = client.chat.completions.create(
-        model=MODEL,
-        messages=full_messages,
-    )
-    return {
-        "reply": response.choices[0].message.content or "Xin lỗi, em không thể xử lý yêu cầu này. Anh/chị vui lòng liên hệ hotline 1900 23 23 89.",
-        "tool_calls_log": tool_calls_log,
-        "booking": booking_info,
-    }
+    except Exception as e:
+        error_msg = str(e)
+        # Log the real error server-side
+        print(f"[AGENT ERROR] {error_msg}")
+        # Return user-friendly message instead of raw error
+        return {
+            "reply": "Xin lỗi anh/chị, hệ thống đang gặp sự cố kết nối tạm thời. Anh/chị vui lòng thử lại sau giây lát hoặc liên hệ hotline **1900 23 23 89** để được hỗ trợ.",
+            "tool_calls_log": tool_calls_log,
+            "booking": None,
+        }

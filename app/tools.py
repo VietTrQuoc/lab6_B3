@@ -282,13 +282,16 @@ def get_available_time_slots(center_id: str, date_str: str = None) -> dict:
 
     slots = data.get_available_slots(center_id, date_str)
 
-    # Group by date for readability
+    # Group by date for readability, include slot_id so AI can book directly
     by_date = {}
     for s in slots:
         d = s["date"]
         if d not in by_date:
             by_date[d] = []
-        by_date[d].append(s["time"])
+        by_date[d].append({
+            "slot_id": s["slot_id"],
+            "time": s["time"],
+        })
 
     return {
         "center_id": center_id,
@@ -333,4 +336,25 @@ def create_appointment(vehicle_id: str, center_id: str, slot_id: str,
         "message": "Em đã giữ chỗ cho anh/chị. Lịch hẹn đang ở trạng thái chờ xác nhận.",
         "ttl_message": "Em sẽ giữ chỗ này cho anh/chị trong 5 phút. Vui lòng xác nhận để hoàn tất đặt lịch.",
         "booking": booking,
+    }
+
+
+def lookup_my_bookings(vehicle_id: str = None) -> dict:
+    """
+    Tra cứu tất cả lịch hẹn đã đặt của khách hàng.
+    Có thể lọc theo vehicle_id. Trả về danh sách booking với trạng thái hiện tại.
+    """
+    bookings = data.get_user_bookings(user_id="U_VIN_001", vehicle_id=vehicle_id)
+
+    if not bookings:
+        return {
+            "message": "Anh/chị chưa có lịch hẹn nào.",
+            "bookings": [],
+            "total": 0,
+        }
+
+    return {
+        "bookings": bookings,
+        "total": len(bookings),
+        "filter_vehicle_id": vehicle_id,
     }

@@ -206,6 +206,23 @@ def get_booking(booking_id: str) -> Optional[dict]:
     return _bookings.get(booking_id)
 
 
+def get_user_bookings(user_id: str = "U_VIN_001", vehicle_id: str = None) -> list[dict]:
+    """Get all bookings for a user, optionally filtered by vehicle_id."""
+    results = []
+    for booking in _bookings.values():
+        if booking.get("user_id") == user_id:
+            if vehicle_id and booking.get("vehicle_id") != vehicle_id:
+                continue
+            # Add TTL info for PENDING bookings
+            entry = dict(booking)
+            if entry["status"] == "PENDING":
+                ttl = get_booking_ttl_remaining(entry["booking_id"])
+                entry["ttl_remaining_seconds"] = ttl
+            results.append(entry)
+    results.sort(key=lambda b: b.get("created_at", ""), reverse=True)
+    return results
+
+
 def get_booking_ttl_remaining(booking_id: str) -> Optional[float]:
     """Returns remaining TTL in seconds, or None if not PENDING."""
     booking = _bookings.get(booking_id)
