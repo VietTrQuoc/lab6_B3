@@ -1,1 +1,2 @@
 booking_id,user_id,vehicle_id,vin_number,center_id,center_name,booking_date,time_slot,service_type,ai_diagnosis_log,note,status,created_at,pending_expires_at,ttl_seconds,confirmed_at,updated_at,rescheduled_at
+BK_53270A,U_VIN_001,V001,EVO200_9999,SC001,VinFast Ocean Park,2026-04-11,17:00,bảo dưỡng,,,CONFIRMED,2026-04-09T14:21:55.569876,,,2026-04-09T14:21:59.666248,2026-04-09T14:21:59.666248,

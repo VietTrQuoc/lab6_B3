@@ -229,6 +229,39 @@ class AgentTopicClarificationTests(unittest.TestCase):
         self.assertEqual(reloaded_booking["center_id"], "SC008")
         self.assertEqual(reloaded_booking["service_type"], "kiem tra pin")
 
+    def test_chat_confirmation_books_latest_proposed_slot(self):
+        slot = data.get_available_slots("SC002")[-1]
+        year, month, day = slot["date"].split("-")
+        display_date = f"{day}/{month}/{year}"
+
+        with patch.object(
+            agent,
+            "_get_agent_graph",
+            side_effect=AssertionError("Graph should not be called when confirming an explicit proposed slot."),
+        ):
+            result = agent.chat(
+                messages=[
+                    {"role": "user", "content": "Dat lich bao duong cho xe nay"},
+                    {
+                        "role": "assistant",
+                        "content": (
+                            f"Khung giờ phù hợp là {slot['time']} vào ngày {display_date}.\n\n"
+                            f"Em sẽ tiến hành đặt lịch bảo dưỡng cho xe Evo200 tại xưởng VinFast Cầu Giấy vào lúc {slot['time']}. "
+                            "Anh có muốn thêm ghi chú gì không?"
+                        ),
+                    },
+                    {"role": "user", "content": "ok tien hanh dat lich cho t"},
+                ],
+                selected_vehicle_id="V001",
+            )
+
+        self.assertIsNotNone(result["booking"])
+        self.assertEqual(result["booking"]["center_name"], "VinFast Cầu Giấy")
+        self.assertEqual(result["booking"]["booking_date"], slot["date"])
+        self.assertEqual(result["booking"]["time_slot"], slot["time"])
+        self.assertEqual(result["booking"]["status"], "PENDING")
+        self.assertIn("create_appointment", [item["tool"] for item in result["tool_calls_log"]])
+
 
 if __name__ == "__main__":
     unittest.main()

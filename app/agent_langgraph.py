@@ -285,6 +285,22 @@ GENERIC_VEHICLE_REFERENCES = {
 
 GREETING_KEYWORDS = {"xin chao", "chao", "hello", "hi", "alo", "cam on", "thank"}
 
+CONFIRMATION_KEYWORDS = {
+    "ok",
+    "oke",
+    "oke em",
+    "dong y",
+    "xac nhan",
+    "tien hanh",
+    "dat lich cho toi",
+    "dat lich cho t",
+    "dat cho toi",
+    "dat cho t",
+    "giu lich cho toi",
+    "giu lich cho t",
+    "duoc",
+}
+
 OUT_OF_SCOPE_HINTS = {
     "gia",
     "gia ban",
@@ -359,6 +375,7 @@ def _normalize_text(text: str) -> str:
 
     normalized = unicodedata.normalize("NFD", text.lower())
     normalized = "".join(ch for ch in normalized if unicodedata.category(ch) != "Mn")
+    normalized = normalized.replace("đ", "d")
     normalized = re.sub(r"[^a-z0-9\s]", " ", normalized)
     normalized = re.sub(r"\s+", " ", normalized)
     return normalized.strip()
@@ -377,6 +394,11 @@ def _contains_booking_intent(text: str) -> bool:
 def _is_greeting_or_social(text: str) -> bool:
     normalized = _normalize_text(text)
     return any(keyword in normalized for keyword in GREETING_KEYWORDS)
+
+
+def _is_confirmation_message(text: str) -> bool:
+    normalized = _normalize_text(text)
+    return any(keyword in normalized for keyword in CONFIRMATION_KEYWORDS)
 
 
 def _contains_out_of_scope_hint(text: str) -> bool:
@@ -591,6 +613,196 @@ def _build_runtime_context() -> str:
         "\nWhen the customer mentions today, tomorrow, warranty remaining days, or appointment dates,"
         " use this runtime date as the source of truth."
     )
+
+
+def _extract_date_from_text(text: str) -> str | None:
+    iso_match = re.search(r"\b(20\d{2}-\d{2}-\d{2})\b", text)
+    if iso_match:
+        return iso_match.group(1)
+
+    slash_match = re.search(r"\b(\d{2})/(\d{2})/(\d{4})\b", text)
+    if slash_match:
+        day, month, year = slash_match.groups()
+        return f"{year}-{month}-{day}"
+
+    return None
+
+
+def _extract_time_from_text(text: str) -> str | None:
+    time_match = re.search(r"\b(\d{1,2}:\d{2})\b", text)
+    if not time_match:
+        return None
+
+    hour, minute = time_match.group(1).split(":")
+    return f"{int(hour):02d}:{minute}"
+
+
+def _resolve_center_from_text(text: str, service_centers: list[dict]) -> dict | None:
+    normalized = _normalize_text(text)
+    for center in service_centers:
+        if any(alias in normalized for alias in _get_center_aliases(center)):
+            return center
+    return None
+
+
+def _infer_service_type(messages: list[dict]) -> str:
+    service_patterns = [
+        ("bao duong dinh ky", "bảo dưỡng định kỳ"),
+        ("kiem tra pin", "kiểm tra pin"),
+        ("bao hanh pin", "bảo hành pin"),
+        ("thay pin", "thay pin"),
+        ("sua chua", "sửa chữa"),
+        ("bao hanh", "bảo hành"),
+        ("kiem tra", "kiểm tra"),
+        ("bao duong", "bảo dưỡng"),
+    ]
+
+    for message in reversed(messages):
+        content = message.get("content")
+        if not isinstance(content, str):
+            continue
+        normalized = _normalize_text(content)
+        for pattern, label in service_patterns:
+            if pattern in normalized:
+                return label
+
+    return "bảo dưỡng"
+
+
+def _extract_note_from_confirmation(text: str) -> str:
+    normalized = _normalize_text(text)
+    if "ghi chu" not in normalized:
+        return ""
+
+    note_match = re.search(r"ghi chú[:\-\s]*(.+)$", text, re.IGNORECASE)
+    if note_match:
+        return note_match.group(1).strip()
+    return ""
+
+
+def _extract_recent_booking_proposal(
+    messages: list[dict],
+    service_centers: list[dict],
+    vehicles: list[dict],
+    selected_vehicle_id: str | None,
+) -> dict | None:
+    assistant_message = None
+    for message in reversed(messages[:-1]):
+        if message.get("role") == "assistant" and isinstance(message.get("content"), str):
+            assistant_message = message["content"]
+            break
+
+    if not assistant_message:
+        return None
+
+    normalized_assistant = _normalize_text(assistant_message)
+    if "dat lich" not in normalized_assistant and "lich hen" not in normalized_assistant:
+        return None
+
+    center = _resolve_center_from_text(assistant_message, service_centers)
+    booking_date = _extract_date_from_text(assistant_message)
+    time_slot = _extract_time_from_text(assistant_message)
+    vehicle = _find_vehicle_reference(assistant_message, vehicles, selected_vehicle_id)
+    if not vehicle and selected_vehicle_id:
+        vehicle = next((item for item in vehicles if item["id"] == selected_vehicle_id), None)
+
+    if not center or not booking_date or not time_slot or not vehicle:
+        return None
+
+    return {
+        "vehicle_id": vehicle["id"],
+        "center_id": center["id"],
+        "center_name": center["name"],
+        "booking_date": booking_date,
+        "time_slot": time_slot,
+        "service_type": _infer_service_type(messages),
+    }
+
+
+def _handle_booking_confirmation(
+    messages: list[dict],
+    service_centers: list[dict],
+    vehicles: list[dict],
+    selected_vehicle_id: str | None,
+) -> dict | None:
+    if len(messages) < 2:
+        return None
+
+    latest_message = messages[-1]
+    if latest_message.get("role") != "user":
+        return None
+
+    latest_content = latest_message.get("content")
+    if not isinstance(latest_content, str) or not _is_confirmation_message(latest_content):
+        return None
+
+    proposal = _extract_recent_booking_proposal(messages, service_centers, vehicles, selected_vehicle_id)
+    if not proposal:
+        return None
+
+    slots_result = tools.get_available_time_slots(proposal["center_id"], proposal["booking_date"])
+    available_slots = slots_result.get("available_dates", {}).get(proposal["booking_date"], [])
+    matched_slot = next((slot for slot in available_slots if slot.get("time") == proposal["time_slot"]), None)
+
+    tool_calls_log = [
+        {
+            "tool": "get_available_time_slots",
+            "arguments": {
+                "center_id": proposal["center_id"],
+                "date_str": proposal["booking_date"],
+            },
+        }
+    ]
+
+    if not matched_slot:
+        return {
+            "reply": (
+                f"Khung giờ {proposal['time_slot']} ngày {proposal['booking_date']} tại {proposal['center_name']} hiện không còn trống. "
+                "Anh/chị vui lòng chọn một khung giờ khác trong danh sách khả dụng nhé."
+            ),
+            "tool_calls_log": tool_calls_log,
+            "booking": None,
+        }
+
+    note = _extract_note_from_confirmation(latest_content)
+    booking_result = tools.create_appointment(
+        vehicle_id=proposal["vehicle_id"],
+        center_id=proposal["center_id"],
+        slot_id=matched_slot["slot_id"],
+        service_type=proposal["service_type"],
+        ai_diagnosis_log="",
+        note=note,
+    )
+    tool_calls_log.append(
+        {
+            "tool": "create_appointment",
+            "arguments": {
+                "vehicle_id": proposal["vehicle_id"],
+                "center_id": proposal["center_id"],
+                "slot_id": matched_slot["slot_id"],
+                "service_type": proposal["service_type"],
+                "ai_diagnosis_log": "",
+                "note": note,
+            },
+        }
+    )
+
+    if not booking_result.get("success"):
+        return {
+            "reply": booking_result.get("error", "Không thể giữ chỗ cho lịch hẹn này."),
+            "tool_calls_log": tool_calls_log,
+            "booking": None,
+        }
+
+    booking = booking_result["booking"]
+    return {
+        "reply": (
+            f"Em đã giữ chỗ lịch hẹn {proposal['service_type']} cho anh/chị tại {booking['center_name']} "
+            f"vào lúc {booking['time_slot']} ngày {booking['booking_date']}. Vui lòng bấm xác nhận trong 5 phút để hoàn tất."
+        ),
+        "tool_calls_log": tool_calls_log,
+        "booking": booking,
+    }
 
 
 def _build_topic_clarification(vehicle: dict | None) -> str:
@@ -961,6 +1173,15 @@ def chat(messages: list[dict], selected_vehicle_id: str | None = None) -> dict:
     rejection_response = _should_reject_out_of_scope(messages, all_vehicles, selected_vehicle_id)
     if rejection_response:
         return rejection_response
+
+    booking_confirmation_response = _handle_booking_confirmation(
+        messages,
+        all_service_centers,
+        all_vehicles,
+        selected_vehicle_id,
+    )
+    if booking_confirmation_response:
+        return booking_confirmation_response
 
     booking_clarification_response = _should_clarify_booking_details(
         messages,
