@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="VinFast Warranty AI Agent - Tư vấn bảo hành xe máy điện VinFast">
+  <title>VinBot — Tư vấn Bảo hành VinFast</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div class="app-container">
+    <!-- ─── Sidebar ──────────────────────────────────────────── -->
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-header">
+        <div class="brand">
+          <div class="brand-icon">⚡</div>
+          <div class="brand-text">
+            <h1>VinBot</h1>
+            <span>Trợ lý bảo hành xe điện</span>
+          </div>
+        </div>
+        <div class="user-info">
+          <div class="user-avatar">NA</div>
+          <div class="user-details">
+            <div class="name">Nguyễn Văn An</div>
+            <div class="id">U_VIN_001</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="vehicle-section">
+        <div class="section-title">🏍️ Xe của tôi</div>
+        <div class="vehicle-list" id="vehicleList">
+          <div class="empty-state">
+            <div class="icon">🔄</div>
+            <div>Đang tải danh sách xe...</div>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- ─── Main Chat Area ───────────────────────────────────── -->
+    <main class="main-area">
+      <div class="chat-header">
+        <div class="chat-header-left">
+          <div class="agent-avatar">🤖</div>
+          <div class="agent-info">
+            <h2>VinBot Assistant</h2>
+            <div class="agent-status">Đang hoạt động</div>
+          </div>
+        </div>
+        <div class="chat-header-right">
+          <button class="header-btn" id="clearChatBtn" title="Cuộc trò chuyện mới">🗑️</button>
+        </div>
+      </div>
+
+      <div class="messages-container" id="messagesContainer">
+        <!-- Welcome message -->
+        <div class="welcome-container" id="welcomeContainer">
+          <div class="welcome-icon">⚡</div>
+          <h2>Xin chào anh An! 👋</h2>
+          <p>Em là VinBot, trợ lý bảo hành xe máy điện VinFast. Em có thể giúp anh tra cứu bảo hành, chẩn đoán xe, tìm xưởng dịch vụ và đặt lịch bảo dưỡng.</p>
+          <div class="quick-actions">
+            <button class="quick-action-btn" data-message="Kiểm tra tình trạng bảo hành xe của tôi">
+              <span class="qa-icon">🔍</span>
+              <span>Tra cứu bảo hành xe</span>
+            </button>
+            <button class="quick-action-btn" data-message="Chính sách bảo hành pin LFP như thế nào?">
+              <span class="qa-icon">🔋</span>
+              <span>Chính sách bảo hành pin</span>
+            </button>
+            <button class="quick-action-btn" data-message="Chẩn đoán tình trạng xe cho tôi">
+              <span class="qa-icon">🩺</span>
+              <span>Chẩn đoán xe</span>
+            </button>
+            <button class="quick-action-btn" data-message="Tìm xưởng dịch vụ gần nhất tại Hà Nội">
+              <span class="qa-icon">📍</span>
+              <span>Tìm xưởng gần nhất</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Typing indicator -->
+        <div class="typing-indicator" id="typingIndicator">
+          <div class="message-avatar" style="background: linear-gradient(135deg, var(--vf-green), #00E664);">🤖</div>
+          <div class="typing-bubble">
+            <div class="typing-dot"></div>
+            <div class="typing-dot"></div>
+            <div class="typing-dot"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="input-area">
+        <div class="input-wrapper">
+          <textarea
+            id="messageInput"
+            placeholder="Hỏi về bảo hành, chẩn đoán xe, hoặc đặt lịch bảo dưỡng..."
+            rows="1"
+          ></textarea>
+          <button class="send-btn" id="sendBtn" title="Gửi tin nhắn">➤</button>
+        </div>
+        <div class="input-hint">Nhấn Enter để gửi • Shift+Enter để xuống dòng</div>
+      </div>
+    </main>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

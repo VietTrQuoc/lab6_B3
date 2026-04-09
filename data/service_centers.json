@@ -1,0 +1,122 @@
+[
+  {
+    "id": "SC001",
+    "name": "VinFast Ocean Park",
+    "address": "Khu đô thị Ocean Park, Gia Lâm, Hà Nội",
+    "city": "Hà Nội",
+    "district": "Gia Lâm",
+    "phone": "024 3333 0001",
+    "working_hours": "08:00 - 17:30 (Thứ 2 - Thứ 7)",
+    "type": "3S",
+    "services": ["bảo hành", "bảo dưỡng", "sửa chữa", "thay pin", "đổi pin", "phụ tùng"],
+    "coordinates": {"lat": 20.9580, "lng": 105.9322}
+  },
+  {
+    "id": "SC002",
+    "name": "VinFast Cầu Giấy",
+    "address": "160 Xuân Thủy, Cầu Giấy, Hà Nội",
+    "city": "Hà Nội",
+    "district": "Cầu Giấy",
+    "phone": "024 3333 0002",
+    "working_hours": "08:00 - 17:30 (Thứ 2 - Thứ 7)",
+    "type": "3S",
+    "services": ["bảo hành", "bảo dưỡng", "sửa chữa", "thay pin", "phụ tùng"],
+    "coordinates": {"lat": 21.0378, "lng": 105.7839}
+  },
+  {
+    "id": "SC003",
+    "name": "VinFast Long Biên",
+    "address": "27 Nguyễn Văn Cừ, Long Biên, Hà Nội",
+    "city": "Hà Nội",
+    "district": "Long Biên",
+    "phone": "024 3333 0003",
+    "working_hours": "08:00 - 17:30 (Thứ 2 - Thứ 7)",
+    "type": "Xưởng dịch vụ",
+    "services": ["bảo hành", "bảo dưỡng", "sửa chữa", "phụ tùng"],
+    "coordinates": {"lat": 21.0467, "lng": 105.8638}
+  },
+  {
+    "id": "SC004",
+    "name": "VinFast Quận 7",
+    "address": "1011 Nguyễn Văn Linh, Phú Mỹ Hưng, Quận 7, TP.HCM",
+    "city": "TP.HCM",
+    "district": "Quận 7",
+    "phone": "028 3333 0004",
+    "working_hours": "08:00 - 17:30 (Thứ 2 - Thứ 7)",
+    "type": "3S",
+    "services": ["bảo hành", "bảo dưỡng", "sửa chữa", "thay pin", "đổi pin", "phụ tùng"],
+    "coordinates": {"lat": 10.7312, "lng": 106.7020}
+  },
+  {
+    "id": "SC005",
+    "name": "VinFast Thủ Đức",
+    "address": "71 Đặng Văn Bi, Thủ Đức, TP.HCM",
+    "city": "TP.HCM",
+    "district": "Thủ Đức",
+    "phone": "028 3333 0005",
+    "working_hours": "08:00 - 18:00 (Thứ 2 - Chủ Nhật)",
+    "type": "3S",
+    "services": ["bảo hành", "bảo dưỡng", "sửa chữa", "thay pin", "phụ tùng"],
+    "coordinates": {"lat": 10.8498, "lng": 106.7614}
+  },
+  {
+    "id": "SC006",
+    "name": "VinFast Tân Bình",
+    "address": "450 Hoàng Văn Thụ, Tân Bình, TP.HCM",
+    "city": "TP.HCM",
+    "district": "Tân Bình",
+    "phone": "028 3333 0006",
+    "working_hours": "08:00 - 17:30 (Thứ 2 - Thứ 7)",
+    "type": "Xưởng dịch vụ",
+    "services": ["bảo hành", "bảo dưỡng", "sửa chữa", "phụ tùng"],
+    "coordinates": {"lat": 10.8010, "lng": 106.6610}
+  },
+  {
+    "id": "SC007",
+    "name": "VinFast Đà Nẵng",
+    "address": "368 Điện Biên Phủ, Thanh Khê, Đà Nẵng",
+    "city": "Đà Nẵng",
+    "district": "Thanh Khê",
+    "phone": "0236 333 0007",
+    "working_hours": "08:00 - 17:30 (Thứ 2 - Thứ 7)",
+    "type": "3S",
+    "services": ["bảo hành", "bảo dưỡng", "sửa chữa", "thay pin", "đổi pin", "phụ tùng"],
+    "coordinates": {"lat": 16.0650, "lng": 108.2140}
+  },
+  {
+    "id": "SC008",
+    "name": "VinFast Hải Phòng",
+    "address": "25 Lạch Tray, Ngô Quyền, Hải Phòng",
+    "city": "Hải Phòng",
+    "district": "Ngô Quyền",
+    "phone": "0225 333 0008",
+    "working_hours": "08:00 - 17:30 (Thứ 2 - Thứ 7)",
+    "type": "3S",
+    "services": ["bảo hành", "bảo dưỡng", "sửa chữa", "thay pin", "phụ tùng"],
+    "coordinates": {"lat": 20.8449, "lng": 106.6915}
+  },
+  {
+    "id": "SC009",
+    "name": "VinFast Cần Thơ",
+    "address": "88 Trần Hưng Đạo, Ninh Kiều, Cần Thơ",
+    "city": "Cần Thơ",
+    "district": "Ninh Kiều",
+    "phone": "0292 333 0009",
+    "working_hours": "08:00 - 17:30 (Thứ 2 - Thứ 7)",
+    "type": "3S",
+    "services": ["bảo hành", "bảo dưỡng", "sửa chữa", "thay pin", "phụ tùng"],
+    "coordinates": {"lat": 10.0341, "lng": 105.7678}
+  },
+  {
+    "id": "SC010",
+    "name": "VinFast Biên Hòa",
+    "address": "KCN Amata, Biên Hòa, Đồng Nai",
+    "city": "Đồng Nai",
+    "district": "Biên Hòa",
+    "phone": "0251 333 0010",
+    "working_hours": "08:00 - 17:30 (Thứ 2 - Thứ 7)",
+    "type": "Xưởng dịch vụ",
+    "services": ["bảo hành", "bảo dưỡng", "sửa chữa", "phụ tùng"],
+    "coordinates": {"lat": 10.9507, "lng": 106.8320}
+  }
+]

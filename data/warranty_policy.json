@@ -1,0 +1,144 @@
+{
+  "policy_version": "2025-08-15",
+  "effective_date": "2025-08-15",
+  "applicable_models": [
+    "Evo200",
+    "Evo200 Lite",
+    "Evo Neo",
+    "Evo Grand",
+    "Feliz S",
+    "Feliz 2025",
+    "Klara S2",
+    "Klara Neo",
+    "Vento S",
+    "Vento Neo",
+    "Theon S"
+  ],
+  "warranty_terms": {
+    "vehicle": {
+      "duration_years": 6,
+      "mileage_limit": "Không giới hạn",
+      "scope": "Bảo hành toàn bộ xe bao gồm khung xe, động cơ điện, hệ thống điện tử, ECU, bộ sạc tích hợp, hệ thống phanh, hệ thống treo, và các linh kiện lắp ráp nhà máy.",
+      "conditions": [
+        "Xe được sử dụng và bảo dưỡng đúng theo hướng dẫn của VinFast.",
+        "Xe chưa qua cải tạo, thay đổi kết cấu, hoặc sử dụng phụ kiện không chính hãng.",
+        "Xe chưa bị ngập nước, tai nạn nghiêm trọng, hoặc hỏa hoạn.",
+        "Bảo dưỡng định kỳ tại xưởng dịch vụ ủy quyền VinFast."
+      ],
+      "exclusions": [
+        "Hao mòn tự nhiên: má phanh, lốp, bóng đèn, gioăng cao su.",
+        "Hư hỏng do tai nạn, va chạm, ngập nước.",
+        "Hư hỏng do sử dụng sai mục đích hoặc cải tạo không được phép.",
+        "Các chi tiết ngoại thất bị trầy xước, phai màu do thời tiết.",
+        "Ắc quy phụ 12V (bảo hành riêng 1 năm)."
+      ]
+    },
+    "battery": {
+      "duration_years": 8,
+      "mileage_limit": "Không giới hạn",
+      "battery_type": "LFP (Lithium Iron Phosphate)",
+      "scope": "Bảo hành pin LFP chính bao gồm cell pin, BMS (Battery Management System), vỏ bảo vệ pin, và các kết nối điện.",
+      "soh_guarantee": "Dung lượng pin (SOH) được bảo đảm duy trì tối thiểu 70% sau 2.000 chu kỳ sạc trong điều kiện sử dụng bình thường.",
+      "conditions": [
+        "Sử dụng bộ sạc chính hãng VinFast hoặc trạm sạc V-Green.",
+        "Không sạc khi nhiệt độ pin vượt quá 45°C.",
+        "Duy trì mức pin trên 20% khi sử dụng hàng ngày.",
+        "Không tự ý tháo rời, sửa chữa, hoặc can thiệp vào pin."
+      ],
+      "exclusions": [
+        "Suy giảm dung lượng tự nhiên theo thời gian (dưới ngưỡng 70% SOH mới được bảo hành thay thế).",
+        "Hư hỏng do sử dụng sạc không chính hãng hoặc nguồn điện không ổn định.",
+        "Pin bị hư do ngập nước, va đập mạnh, hoặc cháy nổ.",
+        "Can thiệp trái phép vào BMS hoặc cell pin."
+      ]
+    }
+  },
+  "maintenance_schedule": {
+    "intervals": [
+      {
+        "at_km": 1000,
+        "or_months": 1,
+        "description": "Kiểm tra tổng thể lần đầu",
+        "items": [
+          "Kiểm tra hệ thống phanh",
+          "Kiểm tra lốp",
+          "Kiểm tra kết nối điện",
+          "Cập nhật firmware"
+        ]
+      },
+      {
+        "at_km": 5000,
+        "or_months": 6,
+        "description": "Bảo dưỡng định kỳ cấp 1",
+        "items": [
+          "Kiểm tra và vệ sinh hệ thống phanh",
+          "Kiểm tra áp suất lốp",
+          "Kiểm tra SOH pin",
+          "Bôi trơn xích/dây curoa",
+          "Kiểm tra đèn chiếu sáng"
+        ]
+      },
+      {
+        "at_km": 10000,
+        "or_months": 12,
+        "description": "Bảo dưỡng định kỳ cấp 2",
+        "items": [
+          "Toàn bộ hạng mục cấp 1",
+          "Thay dầu phanh",
+          "Kiểm tra hệ thống treo",
+          "Kiểm tra motor điện",
+          "Diagnostic toàn xe"
+        ]
+      },
+      {
+        "at_km": 20000,
+        "or_months": 24,
+        "description": "Bảo dưỡng định kỳ cấp 3",
+        "items": [
+          "Toàn bộ hạng mục cấp 2",
+          "Thay má phanh (nếu cần)",
+          "Kiểm tra sâu BMS",
+          "Kiểm tra vòng bi bánh xe",
+          "Thay lốp (nếu cần)"
+        ]
+      }
+    ]
+  },
+  "error_codes": {
+    "E_BAT_TEMP_HIGH": {
+      "severity": "error",
+      "description": "Nhiệt độ pin vượt ngưỡng an toàn (>45°C)",
+      "recommendation": "Dừng sạc ngay, để xe nơi thoáng mát, đưa xe đến xưởng dịch vụ kiểm tra BMS và hệ thống tản nhiệt pin."
+    },
+    "E_BAT_SOH_LOW": {
+      "severity": "error",
+      "description": "Sức khỏe pin (SOH) dưới 70%, pin hoạt động kém hiệu quả",
+      "recommendation": "Đưa xe đến xưởng dịch vụ để đánh giá pin. Nếu trong thời hạn bảo hành, pin có thể được thay thế miễn phí theo chính sách."
+    },
+    "E_MOTOR_VIBRATION": {
+      "severity": "error",
+      "description": "Phát hiện rung động bất thường từ motor điện",
+      "recommendation": "Hạn chế sử dụng và đưa xe đến xưởng dịch vụ ngay để kiểm tra motor, vòng bi, và hệ thống truyền động."
+    },
+    "W_CHARGER_SLOW": {
+      "severity": "warning",
+      "description": "Tốc độ sạc chậm hơn bình thường",
+      "recommendation": "Kiểm tra bộ sạc và nguồn điện. Nếu sử dụng sạc chính hãng và nguồn điện ổn định mà vẫn chậm, cần kiểm tra BMS tại xưởng."
+    },
+    "W_BRAKE_PAD_WEAR": {
+      "severity": "warning",
+      "description": "Má phanh đã mòn, cần thay thế sớm",
+      "recommendation": "Đặt lịch bảo dưỡng để thay má phanh. Má phanh là hạng mục hao mòn, không thuộc diện bảo hành."
+    },
+    "W_TIRE_PRESSURE_LOW": {
+      "severity": "warning",
+      "description": "Áp suất lốp thấp hơn mức khuyến nghị",
+      "recommendation": "Bơm lốp lên áp suất đúng (2.0 - 2.5 bar). Kiểm tra lốp xem có bị thủng hoặc rò rỉ không."
+    }
+  },
+  "contact": {
+    "hotline": "1900 23 23 89",
+    "website": "https://vinfastauto.com",
+    "note": "Liên hệ CSKH để được hỗ trợ thêm các trường hợp phức tạp hoặc khiếu nại bảo hành."
+  }
+}
